@@ -10,12 +10,15 @@ const generateId = () => Math.random().toString(36).substr(2, 9);
 const App: React.FC = () => {
   const [supplements, setSupplements] = useState<Supplement[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>(
-    typeof Notification !== 'undefined' ? Notification.permission : 'default'
-  );
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
 
   // Load data and handle day reset
   useEffect(() => {
+    // Check initial permission status safely
+    if (typeof Notification !== 'undefined') {
+      setNotificationPermission(Notification.permission);
+    }
+
     const savedData = localStorage.getItem('vitaflow_data');
     const lastOpenedDate = localStorage.getItem('vitaflow_date');
     const today = new Date().toDateString();
@@ -47,13 +50,38 @@ const App: React.FC = () => {
   // Request Notification Permission
   const requestNotificationPermission = async () => {
     if (!('Notification' in window)) {
-      alert("此浏览器不支持通知功能");
+      // iOS PWA requires 'standalone' mode for notifications to work.
+      // If the app is running in standard Safari, this might be false or permissions might always be denied.
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+      if (isIOS) {
+        alert("请将此网页添加到主屏幕以启用通知功能 (分享 -> 添加到主屏幕)");
+      } else {
+        alert("此浏览器不支持通知功能");
+      }
       return;
     }
-    const permission = await Notification.requestPermission();
-    setNotificationPermission(permission);
-    if (permission === 'granted') {
-      new Notification('VitaFlow', { body: '提醒已开启，我们将按时提醒您服用补剂。' });
+
+    try {
+      // iOS requires the promise syntax rather than the callback syntax
+      const permission = await Notification.requestPermission();
+      setNotificationPermission(permission);
+      
+      if (permission === 'granted') {
+        // Send a test notification immediately to confirm
+        try {
+          new Notification('VitaFlow', { body: '提醒已开启，我们将按时提醒您服用补剂。' });
+        } catch (e) {
+          console.error("Test notification failed", e);
+        }
+      } else if (permission === 'denied') {
+        alert("您拒绝了通知权限。请在系统设置中允许 VitaFlow 发送通知。");
+      }
+    } catch (error) {
+      console.error("Permission request error", error);
+      // Fallback for older browsers
+      Notification.requestPermission((permission) => {
+        setNotificationPermission(permission);
+      });
     }
   };
 
@@ -67,17 +95,15 @@ const App: React.FC = () => {
 
       supplements.forEach(item => {
         if (item.reminderTime === currentTime && !item.taken) {
-          // Check if we already notified for this item *today*? 
-          // For simplicity in this demo, we assume the minute check aligns with the exact minute.
-          // To prevent spamming in the same minute, we rely on the interval being exactly 60s or using a flag.
-          // A safer way is to store "lastNotified" timestamp.
-          // For now, simple Notification trigger:
-          
-          new Notification(`该吃补剂了: ${item.name}`, {
-            body: `用量: ${item.dosage}。 ${item.notes || ''}`,
-            icon: '/icon.png', // Assuming pwa icon exists or fallback
-            tag: item.id // Prevent duplicate notifications
-          });
+          try {
+             new Notification(`该吃补剂了: ${item.name}`, {
+              body: `用量: ${item.dosage}。 ${item.notes || ''}`,
+              icon: '/icon.png', // Note: Make sure icon path is valid in production
+              tag: item.id + currentTime // Simple tag to prevent duplicates in same minute
+            });
+          } catch (e) {
+            console.error("Notification trigger failed", e);
+          }
         }
       });
     };
@@ -141,7 +167,7 @@ const App: React.FC = () => {
         <div className="max-w-md mx-auto px-4 mb-4">
           <button 
             onClick={requestNotificationPermission}
-            className="w-full bg-indigo-50 border border-indigo-100 p-3 rounded-xl flex items-center justify-between group"
+            className="w-full bg-indigo-50 border border-indigo-100 p-3 rounded-xl flex items-center justify-between group cursor-pointer"
           >
             <div className="flex items-center gap-3">
               <div className="bg-indigo-100 p-2 rounded-lg text-indigo-600">
@@ -156,6 +182,20 @@ const App: React.FC = () => {
               开启
             </span>
           </button>
+        </div>
+      )}
+       {/* Permission Denied Message */}
+       {notificationPermission === 'denied' && (
+        <div className="max-w-md mx-auto px-4 mb-4">
+          <div className="w-full bg-red-50 border border-red-100 p-3 rounded-xl flex items-center gap-3">
+             <div className="bg-red-100 p-2 rounded-lg text-red-600">
+                <BellRing className="w-5 h-5" />
+              </div>
+            <div className="text-left">
+                <h3 className="text-sm font-semibold text-red-900">通知已被禁用</h3>
+                <p className="text-xs text-red-600">请在手机设置中允许通知以接收提醒</p>
+            </div>
+          </div>
         </div>
       )}
 
