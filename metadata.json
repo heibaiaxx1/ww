@@ -1,0 +1,5 @@
+{
+  "name": "VitaFlow - Daily Supplement Tracker",
+  "description": "A smart daily supplement tracker that uses AI to parse health regimens from text and automatically schedule your vitamins and medications.",
+  "requestFramePermissions": []
+}
